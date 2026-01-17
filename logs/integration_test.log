@@ -1,0 +1,67 @@
+2026-01-17T23:15:34.506695Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:15:34.512119Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:15:34.528606Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:15:35.045607Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:16:05.121399Z  INFO mq_bridge::route: Shutdown signal received for route 'memory_to_ibm_mq'.
+2026-01-17T23:16:46.299765Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'memory_to_ibm_mq'.
+2026-01-17T23:16:46.308350Z  INFO mq_bridge::route: Shutdown signal received for route 'ibm_mq_to_memory'.
+2026-01-17T23:16:46.308481Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'ibm_mq_to_memory'.
+2026-01-17T23:19:46.034728Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:19:46.034939Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:19:46.035906Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:19:46.105236Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:19:46.380290Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ put failed: MQCC_FAILED: MQPUT - MQRC_Q_FULL. Reconnecting in 5 seconds...
+2026-01-17T23:19:51.382383Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:19:51.390913Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ connect failed. Reconnecting in 5 seconds...
+2026-01-17T23:19:56.391691Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:19:56.396604Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ connect failed. Reconnecting in 5 seconds...
+2026-01-17T23:20:01.399340Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:20:01.414431Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ connect failed. Reconnecting in 5 seconds...
+2026-01-17T23:20:06.417134Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:20:06.430986Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ connect failed. Reconnecting in 5 seconds...
+2026-01-17T23:20:11.433309Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:20:11.443411Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ connect failed. Reconnecting in 5 seconds...
+2026-01-17T23:20:16.445523Z  INFO mq_bridge::route: Shutdown signal received for route 'memory_to_ibm_mq'.
+2026-01-17T23:20:16.445815Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:20:16.452515Z  INFO mq_bridge::route: Shutdown signal received for route 'ibm_mq_to_memory'.
+2026-01-17T23:20:16.452641Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'ibm_mq_to_memory'.
+2026-01-17T23:21:24.190406Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:21:24.190590Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:21:24.191531Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:21:24.229548Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:21:24.247525Z ERROR mq_bridge::route: Route 'memory_to_ibm_mq' failed: retryable error: MQ put failed: MQCC_FAILED: MQPUT - MQRC_Q_FULL. Reconnecting in 5 seconds...
+2026-01-17T23:22:21.768617Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:22:21.768946Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:22:21.770328Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:22:22.180979Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:22:52.223455Z  INFO mq_bridge::route: Shutdown signal received for route 'memory_to_ibm_mq'.
+2026-01-17T23:23:26.929669Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'memory_to_ibm_mq'.
+2026-01-17T23:23:26.934820Z  INFO mq_bridge::route: Shutdown signal received for route 'ibm_mq_to_memory'.
+2026-01-17T23:23:26.934928Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'ibm_mq_to_memory'.
+2026-01-17T23:24:16.551998Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:24:16.552202Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:24:16.553142Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:24:16.788236Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:26:04.052477Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:26:04.052614Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:26:04.053082Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:26:04.275622Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:26:34.306519Z  INFO mq_bridge::route: Shutdown signal received for route 'memory_to_ibm_mq'.
+2026-01-17T23:26:41.399164Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'memory_to_ibm_mq'.
+2026-01-17T23:26:41.400569Z  INFO mq_bridge::route: Shutdown signal received for route 'ibm_mq_to_memory'.
+2026-01-17T23:26:41.400605Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'ibm_mq_to_memory'.
+2026-01-17T23:29:43.268084Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=mem_out
+2026-01-17T23:29:43.270334Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_pipe
+2026-01-17T23:33:39.200491Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:33:39.201919Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:33:39.204810Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:33:39.566315Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:34:09.669404Z  INFO mq_bridge::route: Shutdown signal received for route 'memory_to_ibm_mq'.
+2026-01-17T23:34:48.692489Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'memory_to_ibm_mq'.
+2026-01-17T23:34:48.704618Z  INFO mq_bridge::route: Shutdown signal received for route 'ibm_mq_to_memory'.
+2026-01-17T23:34:48.704723Z  INFO mq_bridge::route: Shutdown signal received in sequential runner for route 'ibm_mq_to_memory'.
+2026-01-17T23:42:04.447205Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_in
+2026-01-17T23:42:04.447372Z  INFO mq_bridge::endpoints::memory: Creating new runtime memory channel topic=chaos_out
+2026-01-17T23:42:04.447870Z  INFO mq_bridge_ibm_mq: Creating IBM MQ publisher for route memory_to_ibm_mq
+2026-01-17T23:42:04.887816Z  INFO mq_bridge_ibm_mq: Creating IBM MQ consumer for route ibm_mq_to_memory
+2026-01-17T23:42:34.934934Z  INFO mq_bridge::route: Shutdown signal received for route 'memory_to_ibm_mq'.

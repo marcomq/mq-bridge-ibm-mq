@@ -1,0 +1,25 @@
+[package]
+name = "mq-bridge-ibm-mq"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+mq-bridge = { path = "../mq-bridge" }
+mqi = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net", "signal"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+uuid = { version = "1", features = ["v4"] }
+serde_yaml_ng = "0.10"
+mq-bridge = { path = "../mq-bridge", features = ["test-utils"] }
+
+[[bench]]
+name = "bench"
+harness = false
