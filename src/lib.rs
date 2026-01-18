@@ -39,8 +39,7 @@ pub async fn create_ibm_mq_publisher(
     endpoint: &IbmMqEndpoint,
 ) -> anyhow::Result<IbmMqPublisher> {
     info!("Creating IBM MQ publisher for route {}", name);
-    let queue_name = endpoint.queue.as_deref().unwrap_or(name).to_string();
-    Ok(IbmMqPublisher::new(endpoint.config.clone(), queue_name).await?)
+    Ok(IbmMqPublisher::new(endpoint.clone(), name.to_string()).await?)
 }
 
 pub async fn create_ibm_mq_consumer(
@@ -48,8 +47,15 @@ pub async fn create_ibm_mq_consumer(
     endpoint: &IbmMqEndpoint,
 ) -> anyhow::Result<IbmMqConsumer> {
     info!("Creating IBM MQ consumer for route {}", name);
-    let queue_name = endpoint.queue.as_deref().unwrap_or(name).to_string();
-    Ok(IbmMqConsumer::new(endpoint.config.clone(), queue_name).await?)
+    Ok(IbmMqConsumer::new(endpoint.clone(), name.to_string()).await?)
+}
+
+pub async fn create_ibm_mq_subscriber(
+    name: &str,
+    endpoint: &IbmMqEndpoint,
+) -> anyhow::Result<IbmMqSubscriber> {
+    info!("Creating IBM MQ subscriber for route {}", name);
+    Ok(IbmMqSubscriber::new(endpoint.clone(), name.to_string()).await?)
 }
 
 macro_rules! connect_mq {
@@ -116,14 +122,14 @@ pub struct IbmMqPublisher {
 }
 
 impl IbmMqPublisher {
-    pub async fn new(config: IbmMqConfig, queue_name: String) -> Result<Self, PublisherError> {
+    pub async fn new(endpoint: IbmMqEndpoint, route_name: String) -> Result<Self, PublisherError> {
         let (tx, mut rx) = mpsc::channel::<BatchJob>(100);
         let (init_tx, init_rx) = oneshot::channel();
 
         thread::spawn(move || {
             let mut init_tx = Some(init_tx);
             loop {
-                let qm = match connect_mq!(&config) {
+                let qm = match connect_mq!(&endpoint.config) {
                     Ok(q) => q,
                     Err(e) => {
                         if let Some(tx) = init_tx.take() {
@@ -136,13 +142,23 @@ impl IbmMqPublisher {
                 };
 
                 let queue = match (|| -> anyhow::Result<_> {
-                    let q_name = MqStr::<48>::try_from(queue_name.as_str())
-                        .map_err(|e| anyhow::Error::from(e))?;
-                    let od = QueueName(q_name);
                     let open_options = constants::MQOO_OUTPUT | constants::MQOO_FAIL_IF_QUIESCING;
                     let qm_ref = qm.connection_ref();
-                    Object::open(qm_ref, &(od, open_options))
-                        .map_err(|e| anyhow::anyhow!("MQ open failed: {}", e))
+
+                    if let Some(topic) = &endpoint.topic {
+                        let topic_str = MqStr::<1024>::try_from(topic.as_str())
+                            .context("Invalid topic string")?;
+                        let od = open::ObjectString(&topic_str);
+                        Object::open(qm_ref, &(od, open_options))
+                            .map_err(|e| anyhow::anyhow!("MQ open topic failed: {}", e))
+                    } else {
+                        let q_name_str = endpoint.queue.as_deref().unwrap_or(&route_name);
+                        let q_name =
+                            MqStr::<48>::try_from(q_name_str).context("Invalid queue name")?;
+                        let od = QueueName(q_name);
+                        Object::open(qm_ref, &(od, open_options))
+                            .map_err(|e| anyhow::anyhow!("MQ open queue failed: {}", e))
+                    }
                 })() {
                     Ok(q) => q.discard_warning(),
                     Err(e) => {
@@ -248,6 +264,204 @@ enum ConsumerJob {
     },
 }
 
+async fn spawn_consumer_thread(
+    endpoint: IbmMqEndpoint,
+    route_name: String,
+) -> Result<mpsc::Sender<ConsumerJob>, ConsumerError> {
+    let (tx, mut rx) = mpsc::channel::<ConsumerJob>(100);
+    let tx_loop = tx.clone();
+    let (init_tx, init_rx) = oneshot::channel();
+
+    thread::spawn(move || {
+        let mut init_tx = Some(init_tx);
+        loop {
+            let qm = match connect_mq!(&endpoint.config) {
+                Ok(q) => q,
+                Err(e) => {
+                    if let Some(tx) = init_tx.take() {
+                        let _ = tx.send(Err(ConsumerError::Connection(e)));
+                        return;
+                    }
+                    thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+            };
+
+            let (_sub, obj) = match (|| -> anyhow::Result<_> {
+                let qm_ref = qm.connection_ref();
+                // Determine if we are acting as a Subscriber (Topic) or a Consumer (Queue)
+                if let Some(topic) = &endpoint.topic {
+                    let topic_str =
+                        MqStr::<1024>::try_from(topic.as_str()).context("Invalid topic string")?;
+                    let sub_opts = (
+                        constants::MQSO_CREATE
+                            | constants::MQSO_RESUME
+                            | constants::MQSO_MANAGED
+                            | constants::MQSO_NON_DURABLE,
+                        open::ObjectString(&topic_str),
+                    );
+                    let (sub, obj) = Subscription::subscribe_managed(qm_ref, sub_opts)
+                        .map_err(|e| anyhow::anyhow!("MQ subscribe failed: {}", e))?
+                        .discard_warning();
+                    Ok((Some(sub), obj))
+                } else {
+                    let q_name_str = endpoint.queue.as_deref().unwrap_or(&route_name);
+                    let q_name = MqStr::<48>::try_from(q_name_str).context("Invalid queue name")?;
+                    let od = QueueName(q_name);
+                    let open_options =
+                        constants::MQOO_INPUT_AS_Q_DEF | constants::MQOO_FAIL_IF_QUIESCING;
+                    let obj = Object::open(qm_ref, &(od, open_options))
+                        .map_err(|e| anyhow::anyhow!("MQ open failed: {}", e))?
+                        .discard_warning();
+                    Ok((None, obj))
+                }
+            })() {
+                Ok(res) => res,
+                Err(e) => {
+                    if let Some(tx) = init_tx.take() {
+                        let _ = tx.send(Err(ConsumerError::Connection(e)));
+                        return;
+                    }
+                    thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+            };
+
+            if let Some(tx) = init_tx.take() {
+                let _ = tx.send(Ok(()));
+            }
+
+            let mut connection_error = false;
+            while let Some(job) = rx.blocking_recv() {
+                match job {
+                    ConsumerJob::Receive {
+                        max_messages,
+                        reply_tx,
+                    } => {
+                        let mut messages = Vec::with_capacity(max_messages);
+                        let mut error = None;
+                        let mut buffer = vec![0u8; endpoint.config.max_message_size];
+
+                        for _ in 0..max_messages {
+                            let gmo = (
+                                constants::MQGMO_WAIT
+                                    | constants::MQGMO_SYNCPOINT
+                                    | constants::MQGMO_CONVERT
+                                    | constants::MQGMO_FAIL_IF_QUIESCING,
+                                get::GetWait::Wait(endpoint.config.wait_timeout_ms),
+                            );
+
+                            let res: Result<Option<(_, MessageFormat)>, _> =
+                                obj.get_data_with(&gmo, &mut buffer).discard_warning();
+
+                            match res {
+                                Ok(opt) => {
+                                    if let Some((data, _format)) = opt {
+                                        messages.push(CanonicalMessage::new(data.to_vec(), None));
+                                    }
+                                }
+
+                                Err(e) => {
+                                    if e.0 == constants::MQCC_FAILED
+                                        && e.2 == constants::MQRC_NO_MSG_AVAILABLE
+                                    {
+                                        break;
+                                    }
+
+                                    error = Some(ConsumerError::Connection(anyhow::anyhow!(
+                                        "MQ get failed: {}",
+                                        e
+                                    )));
+
+                                    break;
+                                }
+                            }
+                        }
+
+                        if !messages.is_empty() {
+                            if error.is_some() {
+                                connection_error = true;
+                            }
+                            let tx_commit = tx_loop.clone();
+                            let commit_fn =
+                                Box::new(move |failed: Option<Vec<CanonicalMessage>>| {
+                                    let tx = tx_commit.clone();
+                                    Box::pin(async move {
+                                        let (reply_tx, reply_rx) = oneshot::channel();
+                                        let should_backout =
+                                            failed.map_or(false, |msgs| !msgs.is_empty());
+                                        let job = if !should_backout {
+                                            ConsumerJob::Commit { reply_tx }
+                                        } else {
+                                            ConsumerJob::Backout { reply_tx }
+                                        };
+                                        tx.send(job)
+                                            .await
+                                            .map_err(|_| anyhow::anyhow!("Consumer thread dead"))?;
+                                        reply_rx.await.map_err(|_| {
+                                            anyhow::anyhow!("Consumer thread dropped reply")
+                                        })??;
+                                        Ok(())
+                                    })
+                                        as traits::BoxFuture<'static, anyhow::Result<()>>
+                                });
+
+                            let _ = reply_tx.send(Ok(ReceivedBatch {
+                                messages,
+                                commit: commit_fn,
+                            }));
+                        } else if let Some(e) = error {
+                            connection_error = true;
+                            let _ = reply_tx.send(Err(e));
+                        } else {
+                            let _ = reply_tx.send(Ok(ReceivedBatch {
+                                messages,
+                                commit: Box::new(|_| Box::pin(async { Ok(()) })),
+                            }));
+                        }
+                    }
+                    ConsumerJob::Commit { reply_tx } => {
+                        let sp = Syncpoint::new(&qm);
+                        let res = sp.commit().map(|_| ()).map_err(|e| {
+                            ConsumerError::Connection(anyhow::anyhow!("Commit failed: {}", e))
+                        });
+                        if res.is_err() {
+                            connection_error = true;
+                        }
+                        let _ = reply_tx.send(res);
+                    }
+                    ConsumerJob::Backout { reply_tx } => {
+                        let sp = Syncpoint::new(&qm);
+                        let res = sp.backout().map(|_| ()).map_err(|e| {
+                            ConsumerError::Connection(anyhow::anyhow!("Backout failed: {}", e))
+                        });
+                        if res.is_err() {
+                            connection_error = true;
+                        }
+                        let _ = reply_tx.send(res);
+                    }
+                }
+
+                if connection_error {
+                    break;
+                }
+            }
+
+            if !connection_error {
+                break;
+            }
+        }
+    });
+
+    match init_rx.await {
+        Ok(Ok(())) => Ok(tx),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(ConsumerError::Connection(anyhow::anyhow!(
+            "MQ init thread panicked"
+        ))),
+    }
+}
+
 pub struct IbmMqConsumer {
     tx: mpsc::Sender<ConsumerJob>,
 }
@@ -260,11 +474,14 @@ impl MessageConsumer for IbmMqConsumer {
     ) -> Result<ReceivedBatch, crate::traits::ConsumerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
-            .send(ConsumerJob::Receive { max_messages, reply_tx })
+            .send(ConsumerJob::Receive {
+                max_messages,
+                reply_tx,
+            })
             .await
             .map_err(|_| {
-            ConsumerError::Connection(anyhow::anyhow!("MQ consumer thread disconnected"))
-        })?;
+                ConsumerError::Connection(anyhow::anyhow!("MQ consumer thread disconnected"))
+            })?;
 
         reply_rx.await.map_err(|_| {
             ConsumerError::Connection(anyhow::anyhow!("MQ consumer thread dropped reply"))
@@ -277,174 +494,12 @@ impl MessageConsumer for IbmMqConsumer {
 }
 
 impl IbmMqConsumer {
-    pub async fn new(config: IbmMqConfig, queue_name: String) -> Result<Self, ConsumerError> {
-        let (tx, mut rx) = mpsc::channel::<ConsumerJob>(100);
-        let tx_loop = tx.clone();
-        let (init_tx, init_rx) = oneshot::channel();
-
-        thread::spawn(move || {
-            let mut init_tx = Some(init_tx);
-            loop {
-                let qm = match connect_mq!(&config) {
-                    Ok(q) => q,
-                    Err(e) => {
-                        if let Some(tx) = init_tx.take() {
-                            let _ = tx.send(Err(ConsumerError::Connection(e)));
-                            return;
-                        }
-                        thread::sleep(Duration::from_secs(1));
-                        continue;
-                    }
-                };
-
-                let obj = match (|| -> anyhow::Result<_> {
-                    let q_name =
-                        MqStr::<48>::try_from(queue_name.as_str()).context("Invalid queue name")?;
-                    let od = QueueName(q_name);
-                    let open_options =
-                        constants::MQOO_INPUT_AS_Q_DEF | constants::MQOO_FAIL_IF_QUIESCING;
-                    let qm_ref = qm.connection_ref();
-                    Object::open(qm_ref, &(od, open_options))
-                        .map_err(|e| anyhow::anyhow!("MQ open failed: {}", e))
-                })() {
-                    Ok(o) => o.discard_warning(),
-                    Err(e) => {
-                        if let Some(tx) = init_tx.take() {
-                            let _ = tx.send(Err(ConsumerError::Connection(e)));
-                            return;
-                        }
-                        thread::sleep(Duration::from_secs(1));
-                        continue;
-                    }
-                };
-
-                if let Some(tx) = init_tx.take() {
-                    let _ = tx.send(Ok(()));
-                }
-
-                let mut connection_error = false;
-                while let Some(job) = rx.blocking_recv() {
-                    match job {
-                        ConsumerJob::Receive { max_messages, reply_tx } => {
-                            let mut messages = Vec::with_capacity(max_messages);
-                            let mut error = None;
-                            let mut buffer = vec![0u8; config.max_message_size];
-
-                            for _ in 0..max_messages {
-                                let gmo = (
-                                    constants::MQGMO_WAIT
-                                        | constants::MQGMO_SYNCPOINT
-                                        | constants::MQGMO_CONVERT
-                                        | constants::MQGMO_FAIL_IF_QUIESCING,
-                                    get::GetWait::Wait(config.wait_timeout_ms),
-                                );
-
-                                let res: Result<Option<(_, MessageFormat)>, _> =
-                                    obj.get_data_with(&gmo, &mut buffer).discard_warning();
-
-                                match res {
-                                    Ok(opt) => {
-                                        if let Some((data, _format)) = opt {
-                                            messages.push(CanonicalMessage::new(data.to_vec(), None));
-                                        }
-                                    }
-
-                                    Err(e) => {
-                                        if e.0 == constants::MQCC_FAILED
-                                            && e.2 == constants::MQRC_NO_MSG_AVAILABLE
-                                        {
-                                            break;
-                                        }
-
-                                        error = Some(ConsumerError::Connection(anyhow::anyhow!(
-                                            "MQ get failed: {}",
-                                            e
-                                        )));
-
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if !messages.is_empty() {
-                                if error.is_some() {
-                                    connection_error = true;
-                                }
-                                let tx_commit = tx_loop.clone();
-                                let commit_fn = Box::new(move |failed: Option<Vec<CanonicalMessage>>| {
-                                    let tx = tx_commit.clone();
-                                    Box::pin(async move {
-                                        let (reply_tx, reply_rx) = oneshot::channel();
-                                        let should_backout = failed.map_or(false, |msgs| !msgs.is_empty());
-                                        let job = if !should_backout {
-                                            ConsumerJob::Commit { reply_tx }
-                                        } else {
-                                            ConsumerJob::Backout { reply_tx }
-                                        };
-                                        tx.send(job)
-                                            .await
-                                            .map_err(|_| anyhow::anyhow!("Consumer thread dead"))?;
-                                        reply_rx
-                                            .await
-                                            .map_err(|_| anyhow::anyhow!("Consumer thread dropped reply"))??;
-                                        Ok(())
-                                    }) as traits::BoxFuture<'static, anyhow::Result<()>>
-                                });
-
-                                let _ = reply_tx.send(Ok(ReceivedBatch {
-                                    messages,
-                                    commit: commit_fn,
-                                }));
-                            } else if let Some(e) = error {
-                                connection_error = true;
-                                let _ = reply_tx.send(Err(e));
-                            } else {
-                                let _ = reply_tx.send(Ok(ReceivedBatch {
-                                    messages,
-                                    commit: Box::new(|_| Box::pin(async { Ok(()) })),
-                                }));
-                            }
-                        }
-                        ConsumerJob::Commit { reply_tx } => {
-                            let sp = Syncpoint::new(&qm);
-                            let res = sp.commit().map(|_| ()).map_err(|e| {
-                                ConsumerError::Connection(anyhow::anyhow!("Commit failed: {}", e))
-                            });
-                            if res.is_err() {
-                                connection_error = true;
-                            }
-                            let _ = reply_tx.send(res);
-                        }
-                        ConsumerJob::Backout { reply_tx } => {
-                            let sp = Syncpoint::new(&qm);
-                            let res = sp.backout().map(|_| ()).map_err(|e| {
-                                ConsumerError::Connection(anyhow::anyhow!("Backout failed: {}", e))
-                            });
-                            if res.is_err() {
-                                connection_error = true;
-                            }
-                            let _ = reply_tx.send(res);
-                        }
-                    }
-
-                    if connection_error {
-                        break;
-                    }
-                }
-
-                if !connection_error {
-                    break;
-                }
-            }
-        });
-
-        match init_rx.await {
-            Ok(Ok(())) => Ok(Self { tx }),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(ConsumerError::Connection(anyhow::anyhow!(
-                "MQ init thread panicked"
-            ))),
+    pub async fn new(endpoint: IbmMqEndpoint, route_name: String) -> Result<Self, ConsumerError> {
+        if endpoint.topic.is_some() {
+            warn!("IbmMqConsumer initialized with a 'topic' set. It will behave as a Subscriber. Verify if this is intended.");
         }
+        let tx = spawn_consumer_thread(endpoint, route_name).await?;
+        Ok(Self { tx })
     }
 }
 
@@ -460,11 +515,14 @@ impl MessageConsumer for IbmMqSubscriber {
     ) -> Result<ReceivedBatch, crate::traits::ConsumerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
-            .send(ConsumerJob::Receive { max_messages, reply_tx })
+            .send(ConsumerJob::Receive {
+                max_messages,
+                reply_tx,
+            })
             .await
             .map_err(|_| {
-            ConsumerError::Connection(anyhow::anyhow!("MQ subscriber thread disconnected"))
-        })?;
+                ConsumerError::Connection(anyhow::anyhow!("MQ subscriber thread disconnected"))
+            })?;
 
         reply_rx.await.map_err(|_| {
             ConsumerError::Connection(anyhow::anyhow!("MQ subscriber thread dropped reply"))
@@ -477,197 +535,13 @@ impl MessageConsumer for IbmMqSubscriber {
 }
 
 impl IbmMqSubscriber {
-    pub async fn new(config: IbmMqConfig, topic_name: String) -> Result<Self, ConsumerError> {
-        let (tx, mut rx) = mpsc::channel::<ConsumerJob>(100);
-        let tx_loop = tx.clone();
-        let (init_tx, init_rx) = oneshot::channel();
-
-        thread::spawn(move || {
-            let mut init_tx = Some(init_tx);
-            loop {
-                let qm = match connect_mq!(&config) {
-                    Ok(q) => q,
-                    Err(e) => {
-                        if let Some(tx) = init_tx.take() {
-                            let _ = tx.send(Err(ConsumerError::Connection(e)));
-                            return;
-                        }
-                        thread::sleep(Duration::from_secs(1));
-                        continue;
-                    }
-                };
-
-                let (_sub, obj) = match (|| -> anyhow::Result<_> {
-                    let topic_str = MqStr::<1024>::try_from(topic_name.as_str())
-                        .context("Invalid topic string")?;
-                    let sub_opts = (
-                        constants::MQSO_CREATE
-                            | constants::MQSO_RESUME
-                            | constants::MQSO_MANAGED
-                            | constants::MQSO_NON_DURABLE,
-                        open::ObjectString(&topic_str),
-                    );
-                    let qm_ref = qm.connection_ref();
-                    let (sub, obj) = Subscription::subscribe_managed(qm_ref, sub_opts)
-                        .map_err(|e| anyhow::anyhow!("MQ subscribe failed: {}", e))?
-                        .discard_warning();
-                    Ok((sub, obj))
-                })() {
-                    Ok(res) => res,
-                    Err(e) => {
-                        if let Some(tx) = init_tx.take() {
-                            let _ = tx.send(Err(ConsumerError::Connection(e)));
-                            return;
-                        }
-                        thread::sleep(Duration::from_secs(1));
-                        continue;
-                    }
-                };
-
-                if let Some(tx) = init_tx.take() {
-                    let _ = tx.send(Ok(()));
-                }
-
-                let mut connection_error = false;
-                while let Some(job) = rx.blocking_recv() {
-                    match job {
-                        ConsumerJob::Receive { max_messages, reply_tx } => {
-                            let mut messages = Vec::with_capacity(max_messages);
-                            let mut error = None;
-
-                            for _ in 0..max_messages {
-                                let gmo = (
-                                    constants::MQGMO_WAIT
-                                        | constants::MQGMO_SYNCPOINT
-                                        | constants::MQGMO_CONVERT
-                                        | constants::MQGMO_FAIL_IF_QUIESCING,
-                                    get::GetWait::Wait(config.wait_timeout_ms),
-                                );
-
-                                let mut buffer = vec![0u8; config.max_message_size];
-
-                                let res = obj
-                                    .get_data_with::<MessageFormat, _>(&gmo, &mut buffer)
-                                    .discard_warning();
-
-                                match res {
-                                    Ok(opt) => {
-                                        if let Some((data, _format)) = opt {
-                                            messages.push(CanonicalMessage::new(data.to_vec(), None));
-                                        }
-                                    }
-
-                                    Err(e) => {
-                                        if e.0 == constants::MQCC_FAILED
-                                            && e.2 == constants::MQRC_NO_MSG_AVAILABLE
-                                        {
-                                            break;
-                                        }
-
-                                        error = Some(ConsumerError::Connection(anyhow::anyhow!(
-                                            "MQ get failed: {}",
-                                            e
-                                        )));
-
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if !messages.is_empty() {
-                                if error.is_some() {
-                                    connection_error = true;
-                                }
-                                let tx_commit = tx_loop.clone();
-                                let commit_fn = Box::new(move |failed: Option<Vec<CanonicalMessage>>| {
-                                    let tx = tx_commit.clone();
-                                    Box::pin(async move {
-                                        let (reply_tx, reply_rx) = oneshot::channel();
-                                        let should_backout = failed.map_or(false, |msgs| !msgs.is_empty());
-                                        let job = if !should_backout {
-                                            ConsumerJob::Commit { reply_tx }
-                                        } else {
-                                            ConsumerJob::Backout { reply_tx }
-                                        };
-                                        tx.send(job)
-                                            .await
-                                            .map_err(|_| anyhow::anyhow!("Consumer thread dead"))?;
-                                        reply_rx
-                                            .await
-                                            .map_err(|_| anyhow::anyhow!("Consumer thread dropped reply"))??;
-                                        Ok(())
-                                    }) as traits::BoxFuture<'static, anyhow::Result<()>>
-                                });
-
-                                let _ = reply_tx.send(Ok(ReceivedBatch {
-                                    messages,
-                                    commit: commit_fn,
-                                }));
-                            } else if let Some(e) = error {
-                                connection_error = true;
-                                let _ = reply_tx.send(Err(e));
-                            } else {
-                                let _ = reply_tx.send(Ok(ReceivedBatch {
-                                    messages,
-                                    commit: Box::new(|_| Box::pin(async { Ok(()) })),
-                                }));
-                            }
-                        }
-                        ConsumerJob::Commit { reply_tx } => {
-                            let sp = Syncpoint::new(&qm);
-                            let res = sp.commit().map(|_| ()).map_err(|e| {
-                                ConsumerError::Connection(anyhow::anyhow!("Commit failed: {}", e))
-                            });
-                            if res.is_err() {
-                                connection_error = true;
-                            }
-                            let _ = reply_tx.send(res);
-                        }
-                        ConsumerJob::Backout { reply_tx } => {
-                            let sp = Syncpoint::new(&qm);
-                            let res = sp.backout().map(|_| ()).map_err(|e| {
-                                ConsumerError::Connection(anyhow::anyhow!("Backout failed: {}", e))
-                            });
-                            if res.is_err() {
-                                connection_error = true;
-                            }
-                            let _ = reply_tx.send(res);
-                        }
-                    }
-
-                    if connection_error {
-                        break;
-                    }
-                }
-
-                if !connection_error {
-                    break;
-                }
-            }
-        });
-
-        match init_rx.await {
-            Ok(Ok(())) => Ok(Self { tx }),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(ConsumerError::Connection(anyhow::anyhow!(
-                "MQ init thread panicked"
-            ))),
+    pub async fn new(endpoint: IbmMqEndpoint, route_name: String) -> Result<Self, ConsumerError> {
+        if endpoint.topic.is_none() {
+            warn!("IbmMqSubscriber initialized without a 'topic' set. It will behave as a Queue Consumer. Verify if this is intended.");
         }
+        let tx = spawn_consumer_thread(endpoint, route_name).await?;
+        Ok(Self { tx })
     }
-}
-
-pub async fn create_ibm_mq_subscriber(
-    name: &str,
-    endpoint: &IbmMqEndpoint,
-) -> anyhow::Result<IbmMqSubscriber> {
-    info!("Creating IBM MQ subscriber for route {}", name);
-    let topic_name = endpoint
-        .topic
-        .as_deref()
-        .or(endpoint.queue.as_deref())
-        .unwrap_or(name)
-        .to_string();
-    Ok(IbmMqSubscriber::new(endpoint.config.clone(), topic_name).await?)
 }
 
 #[derive(Debug)]
@@ -681,7 +555,6 @@ impl CustomEndpointFactory for IbmMqFactory {
         config: &serde_json::Value,
     ) -> anyhow::Result<Box<dyn MessageConsumer>> {
         let endpoint: IbmMqEndpoint = serde_json::from_value(config.clone())?;
-        // Heuristic: if topic is present, assume subscriber mode
         if endpoint.topic.is_some() {
             Ok(Box::new(
                 create_ibm_mq_subscriber(route_name, &endpoint).await?,

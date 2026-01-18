@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use mq_bridge::bench_backend;
-use mq_bridge::test_utils::{print_benchmark_results, PerformanceResult, PERF_TEST_CONCURRENCY};
+use mq_bridge::test_utils::{PERF_TEST_CONCURRENCY, PerformanceResult, print_benchmark_results};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::time::Duration;

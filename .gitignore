@@ -1,6 +1,6 @@
 /target
 # Logs
-logs
+logs/
 *.log
 
 **/*.rs.bk

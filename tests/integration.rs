@@ -34,7 +34,12 @@ pub async fn test_ibm_mq_performance_pipeline() {
         let config = get_config();
 
         // Seed the queue
-        let publisher = IbmMqPublisher::new(config.clone(), queue_name.to_string())
+        let endpoint = IbmMqEndpoint {
+            queue: Some(queue_name.to_string()),
+            topic: None,
+            config: config.clone(),
+        };
+        let publisher = IbmMqPublisher::new(endpoint, "seed_pub".to_string())
             .await
             .expect("Failed to create publisher");
 
@@ -81,7 +86,10 @@ pub async fn test_ibm_mq_performance_pipeline() {
                 break;
             }
             if start.elapsed().as_secs() > 210 {
-                panic!("Timeout waiting for messages in pipeline. Received: {}", received_count);
+                panic!(
+                    "Timeout waiting for messages in pipeline. Received: {}",
+                    received_count
+                );
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
@@ -143,18 +151,24 @@ pub async fn test_ibm_mq_performance_direct() {
         let queue = "DEV.QUEUE.1";
         let config = get_config();
 
+        let endpoint = IbmMqEndpoint {
+            queue: Some(queue.to_string()),
+            topic: None,
+            config: config.clone(),
+        };
+
         let result = run_direct_perf_test(
             "IBM-MQ",
             || async {
                 Arc::new(
-                    IbmMqPublisher::new(config.clone(), queue.to_string())
+                    IbmMqPublisher::new(endpoint.clone(), "direct_pub".to_string())
                         .await
                         .unwrap(),
                 )
             },
             || async {
                 Arc::new(tokio::sync::Mutex::new(
-                    IbmMqConsumer::new(config.clone(), queue.to_string())
+                    IbmMqConsumer::new(endpoint.clone(), "direct_sub".to_string())
                         .await
                         .unwrap(),
                 ))
