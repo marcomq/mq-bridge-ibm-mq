@@ -22,3 +22,7 @@ services:
       retries: 10
     volumes:
       - ./mq_init.mqsc:/etc/mqm/mq_init.mqsc
+      - mq_data:/mnt/mqm/data
+
+volumes:
+  mq_data:

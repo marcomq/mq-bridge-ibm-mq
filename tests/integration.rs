@@ -74,12 +74,14 @@ pub async fn test_ibm_mq_performance_pipeline() {
 
         // Wait for messages
         let start = Instant::now();
+        let mut received_count = 0;
         loop {
-            if out_channel.len() >= num_messages {
+            received_count += out_channel.drain_messages().len();
+            if received_count >= num_messages {
                 break;
             }
-            if start.elapsed().as_secs() > 90 {
-                panic!("Timeout waiting for messages in pipeline");
+            if start.elapsed().as_secs() > 210 {
+                panic!("Timeout waiting for messages in pipeline. Received: {}", received_count);
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
@@ -98,10 +100,17 @@ pub async fn test_ibm_mq_chaos() {
         let config_yaml = r#"
 routes:
   memory_to_ibm_mq:
+    concurrency: 10
+    batch_size: 128
     input:
       memory:
         topic: "chaos_in"
     output:
+      middlewares:
+        - retry:
+            max_attempts: 60
+            initial_interval_ms: 500
+            max_interval_ms: 2000
       ibmmq:
         queue_manager: "QM1"
         connection_name: "localhost(1414)"

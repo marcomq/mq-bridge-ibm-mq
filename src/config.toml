@@ -1,0 +1,2 @@
+[alias]
+t = "test -r -- --test-threads=1 --no-capture"

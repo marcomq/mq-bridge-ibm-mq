@@ -1,1 +1,10 @@
 /target
+# Logs
+logs
+*.log
+
+**/*.rs.bk
+Cargo.lock
+.DS_Store
+.idea
+.vscode
