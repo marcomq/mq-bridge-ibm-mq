@@ -3,6 +3,13 @@
 IBM MQ endpoint implementation for the `mq-bridge` framework.
 This crate allows `mq-bridge` to consume messages from and publish messages to IBM MQ queues and topics.
 
+## Status
+
+This crate is just an example implementation of a plugin endpoint.
+It was implemented as a proof of concept, but the usage of ibm-mq as feature
+is more convenient and therefore the final move was discarded for now.
+The code here is therefore not getting updated.
+
 ## Prerequisites
 
 This crate relies on the `mqi` crate, which requires the **IBM MQ Client** libraries (C runtime) to be installed on the system where the application runs.
